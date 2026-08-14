@@ -1,0 +1,91 @@
+{
+    "rules": {
+        "users": {
+            "$userId": {
+                ".read": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
+                ".write": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
+                ".validate": "newData.hasChildren(['username', 'online'])",
+                "username": {
+                    ".validate": "newData.isString() && newData.val().length <= 20"
+                },
+                "online": {
+                    ".validate": "newData.isBoolean()"
+                },
+                "$other": {
+                    ".validate": "auth.token.admin === true || auth.uid === $userId"
+                }
+            }
+        },
+        "conversations": {
+            "$userId": {
+                ".read": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
+                ".write": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
+                "messages": {
+                    "$messageId": {
+                        ".validate": "newData.hasChildren(['content', 'sender', 'timestamp'])",
+                        "content": {
+                            ".validate": "newData.isString() && newData.val().length <= 1000"
+                        },
+                        "sender": {
+                            ".validate": "newData.val() === 'user' || newData.val() === 'admin'"
+                        },
+                        "timestamp": {
+                            ".validate": "newData.isNumber()"
+                        },
+                        "$other": {
+                            ".validate": "auth.token.admin === true"
+                        }
+                    }
+                },
+                "typing": {
+                    ".validate": "newData.isBoolean()"
+                },
+                "unread": {
+                    ".validate": "newData.isNumber()"
+                },
+                "$other": {
+                    ".validate": "auth.token.admin === true"
+                }
+            }
+        },
+        "calls": {
+            "$userId": {
+                ".read": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
+                ".write": "auth != null && auth.token.admin === true",
+                "state": {
+                    ".validate": "newData.isString() && (newData.val() === 'inactive' || newData.val() === 'incoming' || newData.val() === 'active' || newData.val() === 'ended')"
+                },
+                "mode": {
+                    ".validate": "newData.isString() && (newData.val() === 'voice' || newData.val() === 'video')"
+                },
+                "$other": {
+                    ".validate": "auth.token.admin === true"
+                }
+            }
+        },
+        "notifications": {
+            "users": {
+                "$userId": {
+                    ".read": "auth != null && auth.uid === $userId",
+                    ".write": "auth != null && auth.token.admin === true"
+                }
+            },
+            "admin": {
+                "$userId": {
+                    ".read": "auth != null && auth.token.admin === true",
+                    ".write": "auth != null && auth.uid === $userId"
+                }
+            }
+        },
+        "admins": {
+            "$adminId": {
+                ".read": "auth != null && auth.uid === $adminId",
+                ".write": false,
+                ".validate": "newData.hasChildren(['role'])",
+                "role": {
+                    ".validate": "newData.val() === 'admin'"
+                }
+            }
+        }
+    }
+}
