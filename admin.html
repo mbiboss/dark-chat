@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DARK CHAT - ADMIN</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Admin Login -->
+    <div id="admin-login" class="screen active">
+        <div class="terminal-container">
+            <div class="terminal-header">
+                <span class="terminal-cursor">></span> ADMIN ACCESS
+            </div>
+            <div class="terminal-body">
+                <div class="glitch-text">ADMIN PANEL</div>
+                <div class="input-container">
+                    <span class="prompt">EMAIL:</span>
+                    <input type="email" id="admin-email" autocomplete="off">
+                </div>
+                <div class="input-container">
+                    <span class="prompt">PASSWORD:</span>
+                    <input type="password" id="admin-password" autocomplete="off">
+                </div>
+                <button id="admin-login-btn">ACCESS</button>
+                <div id="login-error" class="error-message"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="admin-dashboard" class="screen">
+        <div class="admin-header">
+            <span class="terminal-cursor">></span> DARK CHAT ADMIN
+            <button id="admin-logout-btn" class="logout-btn">EXIT</button>
+        </div>
+        <div class="admin-container">
+            <div class="users-panel">
+                <div class="search-container">
+                    <input type="text" id="user-search" placeholder="SEARCH USERS..." class="search-input">
+                </div>
+                <div id="users-list" class="users-list">
+                    <!-- User list will populate here -->
+                </div>
+            </div>
+            <div class="conversation-panel">
+                <div id="conversation-header" class="conversation-header">
+                    SELECT USER
+                </div>
+                <div id="admin-messages" class="messages-container">
+                    <!-- Messages will appear here -->
+                </div>
+                <div class="call-controls">
+                    <button id="voice-call-btn" class="call-btn">VOICE CALL</button>
+                    <button id="video-call-btn" class="call-btn">VIDEO CALL</button>
+                    <button id="end-call-btn" class="call-btn danger">END CALL</button>
+                </div>
+                <div class="call-status-controls">
+                    <button id="mute-self-btn" class="control-btn">MUTE SELF</button>
+                    <button id="mute-user-btn" class="control-btn">MUTE USER</button>
+                    <button id="toggle-camera-btn" class="control-btn">TOGGLE CAMERA</button>
+                </div>
+                <div class="message-input-container">
+                    <input type="text" id="admin-message-input" placeholder="Type message..." maxlength="500">
+                    <button id="admin-send-btn">SEND</button>
+                </div>
+                <video id="admin-video" autoplay playsinline muted></video>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="admin.js"></script>
+</body>
+</html>
