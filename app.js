@@ -7,16 +7,31 @@ let selectedUserId = null;
 let peerConnection = null;
 let localStream = null;
 
-// DOM Elements
-const welcomeScreen = document.getElementById('welcome-screen');
-const chatScreen = document.getElementById('chat-screen');
-const callScreen = document.getElementById('call-screen');
-const usernameInput = document.getElementById('username-input');
-const enterChatBtn = document.getElementById('enter-chat-btn');
-const messageInput = document.getElementById('message-input');
-const sendBtn = document.getElementById('send-btn');
-const messagesContainer = document.getElementById('messages-container');
-const typingIndicator = document.getElementById('typing-indicator');
+// DOM Elements - will be initialized after DOM loads
+let welcomeScreen;
+let chatScreen;
+let callScreen;
+let usernameInput;
+let enterChatBtn;
+let messageInput;
+let sendBtn;
+let messagesContainer;
+let typingIndicator;
+
+// Initialize DOM elements after page loads
+function initializeDOMElements() {
+    welcomeScreen = document.getElementById('welcome-screen');
+    chatScreen = document.getElementById('chat-screen');
+    callScreen = document.getElementById('call-screen');
+    usernameInput = document.getElementById('username-input');
+    enterChatBtn = document.getElementById('enter-chat-btn');
+    messageInput = document.getElementById('message-input');
+    sendBtn = document.getElementById('send-btn');
+    messagesContainer = document.getElementById('messages-container');
+    typingIndicator = document.getElementById('typing-indicator');
+    
+    setupEventListeners();
+}
 
 // Show screen function
 function showScreen(screenId) {
@@ -26,30 +41,63 @@ function showScreen(screenId) {
     document.getElementById(screenId).classList.add('active');
 }
 
-// Enter chat
-enterChatBtn.addEventListener('click', async () => {
-    username = usernameInput.value.trim();
-    if (!username) return;
+// Setup event listeners
+function setupEventListeners() {
+    if (!enterChatBtn) {
+        console.error('enterChatBtn not found');
+        return;
+    }
     
-    try {
-        const userCredential = await signInAnonymously(auth);
-        currentUser = userCredential.user;
+    // Enter chat
+    enterChatBtn.addEventListener('click', async () => {
+        username = usernameInput.value.trim();
+        if (!username) {
+            alert('Please enter your name');
+            return;
+        }
         
-        // Save user info to database
-        await set(ref(database, `users/${currentUser.uid}`), {
-            username: username,
-            online: true,
-            lastSeen: serverTimestamp(),
-            createdAt: serverTimestamp()
+        try {
+            const userCredential = await signInAnonymously(auth);
+            currentUser = userCredential.user;
+            
+            // Save user info to database
+            await set(ref(database, `users/${currentUser.uid}`), {
+                username: username,
+                online: true,
+                lastSeen: serverTimestamp(),
+                createdAt: serverTimestamp()
+            });
+            
+            showScreen('chat-screen');
+            initializeChat();
+            setupPresence();
+        } catch (error) {
+            console.error('Auth error:', error);
+            alert('Error connecting. Please try again.');
+        }
+    });
+    
+    // Send message listeners
+    if (sendBtn) {
+        sendBtn.addEventListener('click', sendMessage);
+    }
+    if (messageInput) {
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
         });
         
-        showScreen('chat-screen');
-        initializeChat();
-        setupPresence();
-    } catch (error) {
-        console.error('Auth error:', error);
+        messageInput.addEventListener('input', () => {
+            if (!currentUser) return;
+            const typingRef = ref(database, `conversations/${currentUser.uid}/typing`);
+            set(typingRef, true);
+            
+            clearTimeout(window.typingTimeout);
+            window.typingTimeout = setTimeout(() => {
+                set(typingRef, false);
+            }, 1000);
+        });
     }
-});
+}
 
 // Initialize chat
 function initializeChat() {
@@ -98,11 +146,6 @@ function displayMessage(message) {
 }
 
 // Send message
-sendBtn.addEventListener('click', sendMessage);
-messageInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendMessage();
-});
-
 function sendMessage() {
     const content = messageInput.value.trim();
     if (!content || !currentUser) return;
@@ -128,17 +171,6 @@ function sendMessage() {
     messageInput.value = '';
 }
 
-// Message input typing indicator
-messageInput.addEventListener('input', () => {
-    const typingRef = ref(database, `conversations/${currentUser.uid}/typing`);
-    set(typingRef, true);
-    
-    clearTimeout(window.typingTimeout);
-    window.typingTimeout = setTimeout(() => {
-        set(typingRef, false);
-    }, 1000);
-});
-
 // Setup presence
 function setupPresence() {
     const userRef = ref(database, `users/${currentUser.uid}`);
@@ -153,36 +185,8 @@ function setupPresence() {
             onDisconnectRef.onDisconnect().update({ online: false });
         }
     });
-}
-
-// Setup notifications
-async function setupNotifications() {
-    try {
-        if (messaging) {
-            const token = await getToken(messaging, { vapidKey: 'YOUR_VAPID_KEY' });
-            // Save token to database
-            set(ref(database, `users/${currentUser.uid}/fcmToken`), token);
-            
-            onMessage(messaging, (payload) => {
-                showNotification(payload.notification.title, payload.notification.body);
-            });
-        }
-    } catch (error) {
-        console.log('Notification permission denied');
-    }
-}
-
-function showNotification(title, body) {
-    if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(`🔔 ${title}`, {
-            body: body,
-            icon: '/icons/icon-192x192.png'
-        });
-    }
-}
-
-// Listen for call state
-if (currentUser) {
+    
+    // Listen for call state
     const callRef = ref(database, `calls/${currentUser.uid}/state`);
     onValue(callRef, (snapshot) => {
         const callState = snapshot.val();
@@ -280,4 +284,37 @@ function cleanupWebRTC() {
         localStream.getTracks().forEach(track => track.stop());
         localStream = null;
     }
+}
+
+// Setup notifications
+async function setupNotifications() {
+    try {
+        if (messaging) {
+            const token = await getToken(messaging, { vapidKey: 'YOUR_VAPID_KEY' });
+            // Save token to database
+            set(ref(database, `users/${currentUser.uid}/fcmToken`), token);
+            
+            onMessage(messaging, (payload) => {
+                showNotification(payload.notification.title, payload.notification.body);
+            });
+        }
+    } catch (error) {
+        console.log('Notification permission denied');
+    }
+}
+
+function showNotification(title, body) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(`🔔 ${title}`, {
+            body: body,
+            icon: '/icons/icon-192x192.png'
+        });
+    }
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeDOMElements);
+} else {
+    initializeDOMElements();
 }
