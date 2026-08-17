@@ -4,7 +4,8 @@ import crypto from './crypto.js';
 let currentUser = null;
 let username = '';
 let selectedUserId = null;
-let activeListeners = new Map();
+let peerConnection = null;
+let localStream = null;
 
 // DOM Elements - will be initialized after DOM loads
 let welcomeScreen;
@@ -37,10 +38,7 @@ function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(screen => {
         screen.classList.remove('active');
     });
-    const screen = document.getElementById(screenId);
-    if (screen) {
-        screen.classList.add('active');
-    }
+    document.getElementById(screenId).classList.add('active');
 }
 
 // Setup event listeners
@@ -91,52 +89,41 @@ function setupEventListeners() {
         messageInput.addEventListener('input', () => {
             if (!currentUser) return;
             const typingRef = ref(database, `conversations/${currentUser.uid}/typing`);
-            set(typingRef, true).catch(err => console.log('Typing error:', err));
+            set(typingRef, true);
             
             clearTimeout(window.typingTimeout);
             window.typingTimeout = setTimeout(() => {
-                set(typingRef, false).catch(err => console.log('Typing clear error:', err));
-            }, 2000);
+                set(typingRef, false);
+            }, 1000);
         });
     }
 }
 
 // Initialize chat
 function initializeChat() {
-    if (!currentUser) return;
-    
-    // Cleanup old listeners
-    cleanupListeners();
-    
     const conversationRef = ref(database, `conversations/${currentUser.uid}/messages`);
     
-    const unsubscribe = onValue(conversationRef, (snapshot) => {
+    onValue(conversationRef, (snapshot) => {
         messagesContainer.innerHTML = '';
         const messages = snapshot.val();
         
         if (messages) {
-            Object.keys(messages).sort().forEach(key => {
+            Object.keys(messages).forEach(key => {
                 const message = messages[key];
                 displayMessage(message);
             });
         }
         
         // Scroll to bottom
-        setTimeout(() => {
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }, 100);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
     });
-    
-    activeListeners.set('messages', unsubscribe);
     
     // Listen for typing indicator
     const typingRef = ref(database, `conversations/${currentUser.uid}/typing`);
-    const typingUnsub = onValue(typingRef, (snapshot) => {
+    onValue(typingRef, (snapshot) => {
         const isTyping = snapshot.val();
-        typingIndicator.textContent = isTyping ? '[ADMIN TYPING...]' : '';
+        typingIndicator.textContent = isTyping ? 'ADMIN is typing...' : '';
     });
-    
-    activeListeners.set('typing', typingUnsub);
     
     // Setup push notifications
     setupNotifications();
@@ -147,18 +134,11 @@ function displayMessage(message) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${message.sender === 'admin' ? 'message-admin' : 'message-user'}`;
     
-    let decrypted = message.content;
-    try {
-        decrypted = crypto.decrypt(message.content);
-    } catch (e) {
-        console.log('Decrypt error:', e);
-    }
-    
     const timestamp = message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : '';
     
     messageDiv.innerHTML = `
-        <div class="message-sender">${message.sender === 'admin' ? '[ADMIN]' : '[YOU]'}</div>
-        <div class="message-content">${decrypted}</div>
+        <div class="message-sender">${message.sender === 'admin' ? 'ADMIN' : 'YOU'}</div>
+        <div class="message-content">${crypto.decrypt(message.content)}</div>
         <div class="message-timestamp">${timestamp}</div>
     `;
     
@@ -173,111 +153,163 @@ function sendMessage() {
     const messagesRef = ref(database, `conversations/${currentUser.uid}/messages`);
     const newMessageRef = push(messagesRef);
     
-    let encrypted = content;
-    try {
-        encrypted = crypto.encrypt(content);
-    } catch (e) {
-        console.log('Encrypt error:', e);
-    }
-    
     set(newMessageRef, {
-        content: encrypted,
+        content: crypto.encrypt(content),
         sender: 'user',
         timestamp: serverTimestamp(),
         read: false
-    }).catch(err => {
-        console.error('Send error:', err);
-        alert('Failed to send message');
     });
     
     // Update admin notifications
     set(ref(database, `notifications/admin/${currentUser.uid}`), {
         username: username,
-        userId: currentUser.uid,
         message: content,
         timestamp: serverTimestamp(),
         read: false
-    }).catch(err => console.log('Notification error:', err));
+    });
     
     messageInput.value = '';
 }
 
 // Setup presence
 function setupPresence() {
-    if (!currentUser) return;
-    
     const userRef = ref(database, `users/${currentUser.uid}`);
     const connectedRef = ref(database, '.info/connected');
     
-    const unsubscribe = onValue(connectedRef, (snapshot) => {
+    onValue(connectedRef, (snapshot) => {
         if (snapshot.val() === true) {
-            update(userRef, { 
-                online: true,
-                lastSeen: serverTimestamp()
-            }).catch(err => console.log('Update online error:', err));
+            update(userRef, { online: true });
+            
+            // Set offline on disconnect
+            const onDisconnectRef = ref(database, `users/${currentUser.uid}`);
+            onDisconnectRef.onDisconnect().update({ online: false });
         }
     });
     
-    activeListeners.set('presence', unsubscribe);
-    
-    // Cleanup on page close
-    window.addEventListener('beforeunload', () => {
-        update(userRef, { 
-            online: false,
-            lastSeen: serverTimestamp()
-        }).catch(err => console.log('Offline error:', err));
+    // Listen for call state
+    const callRef = ref(database, `calls/${currentUser.uid}/state`);
+    onValue(callRef, (snapshot) => {
+        const callState = snapshot.val();
+        if (callState) {
+            handleCallState(callState);
+        } else {
+            showScreen('chat-screen');
+        }
     });
+}
+
+// Handle call state
+async function handleCallState(callState) {
+    if (callState === 'incoming' || callState === 'active') {
+        showScreen('call-screen');
+        document.getElementById('call-state-display').textContent = 
+            callState === 'incoming' ? 'INCOMING CALL...' : 'CALL ACTIVE';
+        
+        // Get call details
+        const callRef = ref(database, `calls/${currentUser.uid}`);
+        onValue(callRef, async (snapshot) => {
+            const callData = snapshot.val();
+            if (callData) {
+                if (callData.mode === 'video' && callData.userCamera) {
+                    await initializeWebRTC(callData);
+                }
+            }
+        });
+    } else if (callState === 'ended') {
+        showScreen('chat-screen');
+        cleanupWebRTC();
+    }
+}
+
+// Initialize WebRTC
+async function initializeWebRTC(callData) {
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: callData.mode === 'video' && callData.userCamera
+        });
+        
+        peerConnection = new RTCPeerConnection();
+        
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+        
+        peerConnection.ontrack = (event) => {
+            const remoteVideo = document.getElementById('remote-video');
+            remoteVideo.srcObject = event.streams[0];
+        };
+        
+        if (callData.offer) {
+            await peerConnection.setRemoteDescription(callData.offer);
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            set(ref(database, `calls/${currentUser.uid}/answer`), answer);
+        }
+        
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                const candidateRef = push(ref(database, `calls/${currentUser.uid}/iceCandidates`));
+                set(candidateRef, event.candidate.toJSON());
+            }
+        };
+        
+        // Listen for ICE candidates
+        const iceRef = ref(database, `calls/${currentUser.uid}/iceCandidates`);
+        onValue(iceRef, (snapshot) => {
+            const candidates = snapshot.val();
+            if (candidates) {
+                Object.keys(candidates).forEach(key => {
+                    if (candidates[key] && !candidates[key].added) {
+                        peerConnection.addIceCandidate(candidates[key]);
+                        candidates[key].added = true;
+                    }
+                });
+            }
+        });
+        
+    } catch (error) {
+        console.error('WebRTC error:', error);
+        document.getElementById('call-error').textContent = 
+            'CAMERA/MICROPHONE ACCESS DENIED';
+    }
+}
+
+function cleanupWebRTC() {
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+    }
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
 }
 
 // Setup notifications
 async function setupNotifications() {
     try {
-        if (messaging && currentUser) {
-            const token = await getToken(messaging, { 
-                vapidKey: 'BD5h6-Kq0DhkWYT0zqLnqPaY-_Bk8P8hWsNXH5wAm5w3cjLjw8XJf7NjWqYLEqF4g0T6FqR6H9sJlQ4nKkZs1w'
-            });
+        if (messaging) {
+            const token = await getToken(messaging, { vapidKey: 'YOUR_VAPID_KEY' });
+            // Save token to database
+            set(ref(database, `users/${currentUser.uid}/fcmToken`), token);
             
-            if (token) {
-                set(ref(database, `users/${currentUser.uid}/fcmToken`), token)
-                    .catch(err => console.log('Token save error:', err));
-                
-                onMessage(messaging, (payload) => {
-                    if (payload.notification) {
-                        showNotification(payload.notification.title || 'DARK CHAT', 
-                                        payload.notification.body || 'New message');
-                    }
-                });
-            }
+            onMessage(messaging, (payload) => {
+                showNotification(payload.notification.title, payload.notification.body);
+            });
         }
     } catch (error) {
-        console.log('Messaging not available:', error);
+        console.log('Notification permission denied');
     }
 }
 
 function showNotification(title, body) {
     if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(`📬 ${title}`, {
+        new Notification(`🔔 ${title}`, {
             body: body,
-            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect fill="%23000" width="192" height="192"/><text x="96" y="120" font-size="80" fill="%2300ff00" text-anchor="middle" font-family="monospace">◉</text></svg>'
+            icon: '/icons/icon-192x192.png'
         });
     }
-}
-
-// Cleanup listeners
-function cleanupListeners() {
-    activeListeners.forEach((unsubscribe, key) => {
-        try {
-            unsubscribe();
-        } catch (e) {
-            console.log('Cleanup error for', key, ':', e);
-        }
-    });
-    activeListeners.clear();
-}
-
-// Request notification permission
-if ('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission();
 }
 
 // Initialize when DOM is ready
@@ -286,6 +318,3 @@ if (document.readyState === 'loading') {
 } else {
     initializeDOMElements();
 }
-
-// Cleanup on page close
-window.addEventListener('beforeunload', cleanupListeners);
