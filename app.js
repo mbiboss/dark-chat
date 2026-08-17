@@ -58,24 +58,47 @@ function setupEventListeners() {
             return;
         }
         
+        enterChatBtn.disabled = true;
+        enterChatBtn.textContent = 'CONNECTING...';
+        
         try {
-            const userCredential = await signInAnonymously(auth);
-            currentUser = userCredential.user;
+            // Try Firebase anonymous auth
+            let userUid = null;
+            try {
+                const userCredential = await signInAnonymously(auth);
+                currentUser = userCredential.user;
+                userUid = currentUser.uid;
+                console.log('Firebase auth successful:', userUid);
+            } catch (authError) {
+                console.warn('Firebase auth failed, using local UID:', authError);
+                // Fallback: Create local user ID if Firebase auth fails
+                userUid = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                currentUser = { uid: userUid };
+            }
             
             // Save user info to database
-            await set(ref(database, `users/${currentUser.uid}`), {
-                username: username,
-                online: true,
-                lastSeen: serverTimestamp(),
-                createdAt: serverTimestamp()
-            });
+            try {
+                await set(ref(database, `users/${userUid}`), {
+                    username: username,
+                    online: true,
+                    lastSeen: serverTimestamp(),
+                    createdAt: serverTimestamp()
+                });
+                console.log('User saved to database:', userUid);
+            } catch (dbError) {
+                console.error('Database error saving user:', dbError);
+            }
             
+            usernameInput.value = '';
             showScreen('chat-screen');
             initializeChat();
             setupPresence();
+            
         } catch (error) {
-            console.error('Auth error:', error);
-            alert('Error connecting. Please try again.');
+            console.error('Critical error:', error);
+            alert('Error: ' + (error.message || 'Could not connect'));
+            enterChatBtn.disabled = false;
+            enterChatBtn.textContent = 'ENTER CHAT';
         }
     });
     

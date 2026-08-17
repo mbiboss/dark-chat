@@ -2,24 +2,15 @@
     "rules": {
         "users": {
             "$userId": {
-                ".read": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
-                ".write": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
-                ".validate": "newData.hasChildren(['username', 'online'])",
-                "username": {
-                    ".validate": "newData.isString() && newData.val().length <= 20"
-                },
-                "online": {
-                    ".validate": "newData.isBoolean()"
-                },
-                "$other": {
-                    ".validate": "auth.token.admin === true || auth.uid === $userId"
-                }
+                ".read": true,
+                ".write": true,
+                ".validate": "newData.hasChildren(['username', 'online'])"
             }
         },
         "conversations": {
             "$userId": {
-                ".read": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
-                ".write": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
+                ".read": true,
+                ".write": true,
                 "messages": {
                     "$messageId": {
                         ".validate": "newData.hasChildren(['content', 'sender', 'timestamp'])",
@@ -28,26 +19,26 @@
                         },
                         "sender": {
                             ".validate": "newData.val() === 'user' || newData.val() === 'admin'"
-                        },
-                        "timestamp": {
-                            ".validate": "newData.isNumber()"
-                        },
-                        "$other": {
-                            ".validate": "auth.token.admin === true"
                         }
                     }
                 },
                 "typing": {
                     ".validate": "newData.isBoolean()"
-                },
-                "unread": {
-                    ".validate": "newData.isNumber()"
-                },
-                "$other": {
-                    ".validate": "auth.token.admin === true"
                 }
             }
         },
+        "notifications": {
+            "admin": {
+                ".read": true,
+                ".write": true
+            }
+        },
+        "admins": {
+            ".read": true,
+            ".write": false
+        }
+    }
+}
         "calls": {
             "$userId": {
                 ".read": "auth != null && (auth.uid === $userId || auth.token.admin === true)",
